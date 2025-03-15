@@ -49,7 +49,7 @@ from bayesian_lora.main import jacobian_mean
 @hydra.main(
     version_base="1.3",
     config_path="configs",
-    config_name="example_usage",
+    config_name="winogrande_phi",
 )
 def main(cfg: DictConfig):
     #
@@ -76,6 +76,9 @@ def main(cfg: DictConfig):
         split=cfg.dset.train_split,  # training split name in dset
         subset_size=cfg.dset.train_subset,  # train on subset? (-1 = no subset)
     )
+    print('Len of train_loader: ', len(train_loader.dataset))
+    labels = [label for _, label, _ in train_loader]
+    print(len(labels) * cfg.dset.train_bs)
     map_param_path = f"{cfg.paths.output_dir}/MAP_params.pth"
     grad_steps, epoch = 0, 0
     if not os.path.exists(map_param_path) or cfg.run_every_step:

@@ -49,7 +49,7 @@ from bayesian_lora.main import jacobian_mean
 @hydra.main(
     version_base="1.3",
     config_path="configs",
-    config_name="example_usage",
+    config_name="arc_phi",
 )
 def main(cfg: DictConfig):
     #
