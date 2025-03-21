@@ -18,6 +18,7 @@ import torch as t
 
 from abc import abstractmethod
 from enum import Enum
+from typing import Optional
 from datasets import load_dataset
 from transformers import AutoTokenizer
 from collections import OrderedDict
@@ -137,7 +138,7 @@ class ClassificationDataset:
         is_sc: bool = False,
         split: str = "train",
         subset_size: int = -1,
-        subset_seed: int | None = 42,
+        subset_seed: Optional[int] = 42,
         grad_acc_steps: int = 1,
         drop_last: bool = True,
         **kwargs,
@@ -397,12 +398,13 @@ class WinograndeSplit(Enum):
     L = "winogrande_l"
     XL = "winogrande_xl"
 
+    # Check sizes at https://huggingface.co/datasets/allenai/winogrande
 
 class WinograndeDataset(ClassificationDataset):
     def __init__(
         self,
         tokenizer: AutoTokenizer,
-        name: WinograndeSplit = WinograndeSplit.S,
+        name: WinograndeSplit = WinograndeSplit.XL,
         add_space: bool = True,
         few_shot: bool = False,
         max_len: int = 4096,
