@@ -23,6 +23,7 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 from collections import OrderedDict
 from torch.utils.data import DataLoader, Dataset
+import numpy as np
 
 # List of datasets available in this module
 dsets = [
@@ -139,17 +140,57 @@ class ClassificationDataset:
         split: str = "train",
         subset_size: int = -1,
         subset_seed: Optional[int] = 42,
+        subset_balanced: bool = False,
         grad_acc_steps: int = 1,
         drop_last: bool = True,
         **kwargs,
     ):
         if subset_size > 0:
+            """
             subset_size = (
                 len(self.dset[split])
                 if len(self.dset[split]) < subset_size
                 else subset_size
             )
             dset = self.dset[split].shuffle(seed=subset_seed).select(range(subset_size))
+            """
+            if subset_balanced:
+                # Group indices by class label
+                answer_to_indices = {}
+                for idx, example in enumerate(self.dset[split]):
+                    label = example["answer"]
+                    answer_to_indices.setdefault(label, []).append(idx)
+
+                unique_labels = list(answer_to_indices.keys())
+                num_classes = len(unique_labels)
+                # Calculate the number of samples per class
+                samples_per_class = subset_size // num_classes
+                print(f'[dset subsample info] Samples per class: {samples_per_class}')
+                balanced_indices = []
+                rng = np.random.RandomState(subset_seed)
+                for label in unique_labels:
+                    indices = answer_to_indices[label]
+                    rng.shuffle(indices)
+                    # Select up to the desired number, but if a class has fewer examples, take all of them
+                    selected = indices[:min(samples_per_class, len(indices))]
+                    balanced_indices.extend(selected)
+
+                # If subset_size isn’t exactly divisible by num_classes, fill the remainder randomly
+                remainder = subset_size - len(balanced_indices)
+                print(f'[dset subsample info] remainder: {remainder}')
+                if remainder > 0:
+                    remaining_indices = []
+                    for label in unique_labels:
+                        # Add indices that weren’t already selected
+                        remaining = [idx for idx in answer_to_indices[label] if idx not in balanced_indices]
+                        remaining_indices.extend(remaining)
+                    rng.shuffle(remaining_indices)
+                    balanced_indices.extend(remaining_indices[:remainder])
+
+                # Select the balanced indices from the dataset
+                dset = self.dset[split].select(balanced_indices)
+            else:
+                dset = self.dset[split].shuffle(seed=subset_seed).select(range(subset_size))
         else:
             dset = self.dset[split]
 

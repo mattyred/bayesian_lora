@@ -28,6 +28,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 from torch import Tensor
 from typing import Any
+from pytorch_lightning.loggers import WandbLogger
 from omegaconf import DictConfig
 from torch.func import jacrev, functional_call
 from torchmetrics import Accuracy, CalibrationError
@@ -45,6 +46,14 @@ from utils.loggers import setup_loggers
 from utils.setup_llm import setup_llm
 from bayesian_lora.main import jacobian_mean
 
+import numpy as np
+from torch.utils.data import DataLoader, Subset
+
+WANDB = True
+if WANDB:
+    import wandb
+    wandb.login(key="f6eb13523bda734ef2c3e32c577a7a0124868c23")
+
 
 @hydra.main(
     version_base="1.3",
@@ -58,6 +67,7 @@ def main(cfg: DictConfig):
     device = "cuda:0"
     setup_loggers(cfg)
     os.makedirs(cfg.paths.output_dir, exist_ok=True)
+
 
     #
     # 2. Load PEFT model and dataset
@@ -75,10 +85,18 @@ def main(cfg: DictConfig):
         batch_size=cfg.dset.train_bs,  # training batch size
         split=cfg.dset.train_split,  # training split name in dset
         subset_size=cfg.dset.train_subset,  # train on subset? (-1 = no subset)
+        subset_balanced=True,
     )
-    print('Len of train_loader: ', len(train_loader.dataset))
-    labels = [label for _, label, _ in train_loader]
-    print(len(labels) * cfg.dset.train_bs)
+    train_subset_length = len(train_loader.dataset)
+    print('[dset subsample info] Legth of train_loader: ', train_subset_length)
+    # labels = [label for _, label, _ in train_loader]
+    # print(len(labels) * cfg.dset.train_bs)
+    if WANDB:
+        # Init Wandb run
+        run = wandb.init(
+            project="bayesian-lora-scaling-laws",
+            name=f"exp_{cfg.dset.name}_llm_phi__N_{train_subset_length}")
+
     map_param_path = f"{cfg.paths.output_dir}/MAP_params.pth"
     grad_steps, epoch = 0, 0
     if not os.path.exists(map_param_path) or cfg.run_every_step:
@@ -104,6 +122,7 @@ def main(cfg: DictConfig):
                 logits = model(**inputs).logits[:, -1, dset.target_ids.squeeze(-1)]
                 # loss = F.cross_entropy(logits[:, -1], targets.to(device))
                 loss = F.cross_entropy(logits, classes.to(device))
+                run.log({"MAP/train_loss": loss.cpu().detach().numpy()})
                 assert not t.isnan(loss).any(), "NaN in loss for MAP training."
                 loss.backward()
                 opt.step()
@@ -130,7 +149,7 @@ def main(cfg: DictConfig):
             is_sc=cfg.llm.is_sc,
             batch_size=cfg.dset.eval_bs,
             split=cfg.dset.eval_split,
-            subset_size=cfg.dset.eval_subset,
+            subset_size=-1 #MR: cfg.dset.eval_subset,
         )
         LL = 0.0
         with t.no_grad(), t.inference_mode():
@@ -200,6 +219,7 @@ def main(cfg: DictConfig):
             loss = model_evidence(
                 model, LL, factors, cfg.llm.peft.r, cfg.n_kfac, s2
             ).log()
+            run.log({"PriorVarOpt/train_loss": loss.cpu().detach().numpy()})
             loss.backward()
             t.nn.utils.clip_grad_norm_(s2, 1.0)
             opt.step()
@@ -231,7 +251,7 @@ def main(cfg: DictConfig):
         is_sc=cfg.llm.is_sc,
         batch_size=cfg.dset.eval_bs,
         split=cfg.dset.eval_split,
-        subset_size=cfg.dset.eval_subset,
+        subset_size=-1,
     )
 
     pred_mu = []
@@ -307,13 +327,16 @@ def main(cfg: DictConfig):
 
     logging.info(f"NLL: {loss:.5f}, ACC: {acc:.5f}, ECE: {ece:.5f}")
 
-    output_path = f"{cfg.paths.output_dir}/predicted_logits.pth"
+    output_path = f"{cfg.paths.output_dir}/predicted_logits_N_{train_subset_length}.pth"
     t.save(
         {"pred_mu": pred_mu, "pred_var": pred_var, "pred_logits": pred_logits, "pred_samples": pred_samples},
         output_path,
     )
 
     logging.info("Successfully finished.")
+
+    if WANDB:
+        wandb.finish()
 
 
 if __name__ == "__main__":

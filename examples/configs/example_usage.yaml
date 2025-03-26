@@ -4,7 +4,7 @@
 defaults:
   - base_config
   - opt: adamw
-  - dset: arc
+  - dset: winogrande
   - llm: phi
   - override llm/peft: lora # unused if use_peft: None
   - override llm/quantization: 4bit

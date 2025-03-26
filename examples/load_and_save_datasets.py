@@ -29,7 +29,7 @@ def main(cfg: DictConfig):
         is_sc=cfg.llm.is_sc,
         batch_size=cfg.dset.eval_bs,
         split=cfg.dset.eval_split,
-        subset_size=cfg.dset.eval_subset,
+        subset_size=-1, #MR: cfg.dset.eval_subset,
     )
 
     raw_samples = []
